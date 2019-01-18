@@ -4,7 +4,6 @@ import (
 	"github.com/globalsign/mgo"
 	"log"
 	"github.com/globalsign/mgo/bson"
-	"github.com/InclusION/static"
 )
 
 func InitDB() *mgo.Database {
@@ -19,14 +18,14 @@ func InitDB() *mgo.Database {
 
 	//defer session.Close()
 
-	db := session.DB("inclusion")
+	db := session.DB("BTUS")
 
 	// make username unique in tblUsers
-	indexUser := mgo.Index{
-		Key:    []string{"username"},
-		Unique: true,
-	}
-	db.C(static.TBL_USERS).EnsureIndex(indexUser)
+	//indexUser := mgo.Index{
+	//	Key:    []string{"username"},
+	//	Unique: true,
+	//}
+	//db.C(static.TBL_USERS).EnsureIndex(indexUser)
 
 	return db
 }

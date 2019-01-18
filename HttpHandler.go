@@ -5,16 +5,14 @@ import (
 	"time"
 	"net/http"
 	"fmt"
-	"github.com/InclusION/util"
-	"github.com/InclusION/model"
 	"github.com/globalsign/mgo/bson"
-	"github.com/InclusION/mdb"
-	"github.com/InclusION/static"
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"strconv"
-	"github.com/InclusION/chat"
-	"github.com/InclusION/fcm"
+	"github.com/BTUS/util"
+	"github.com/BTUS/model"
+	"github.com/BTUS/mdb"
+	"github.com/BTUS/static"
 )
 
 
@@ -25,7 +23,7 @@ func testConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func register(w http.ResponseWriter, r *http.Request) {
+func Register(w http.ResponseWriter, r *http.Request) {
 
 	util.CheckBodyNil(w, r)
 
@@ -36,20 +34,20 @@ func register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.MongoID = bson.NewObjectId()
-	err = user.Insert()
+	user.IsVerify = false
+
+	err = user.Insert(user)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 
 	uu := mdb.QueryById(static.TBL_USERS, user.MongoID)
-
 	json.NewEncoder(w).Encode(&uu)
-
 }
 
 
-func login(w http.ResponseWriter, r *http.Request) {
+func Login(w http.ResponseWriter, r *http.Request) {
 
 	util.CheckBodyNil(w, r)
 
@@ -58,14 +56,24 @@ func login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	log.Println(user)
 
-	err, u := user.QueryByUsernameAndPassword()
+
+	var u model.User
+
+	// check if has email -> login by email
+	if len(user.Email) > 0 {
+		err, u = user.QueryByEmailPassword(user.Email, user.Password)
+	}
+
+	// check if has phone -> login by phone
+	if len(user.Phone) > 0 {
+		err, u = user.QueryByPhonePassword(user.Phone, user.Password)
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	log.Println(u)
 
 	// if Token expired, create new token
 	// hash the username and password and timestamp
@@ -75,15 +83,16 @@ func login(w http.ResponseWriter, r *http.Request) {
 		u.LoginNonce++
 		u.TokenExpiryTime = time.Now().UTC().Add(time.Hour * 24 * 10)
 
-		err := u.UpdateById()
+		err := u.UpdateByMongoId(u)
 		if err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
 	}
+
 	// create token and return to client
 	// because login, so that we have to return Token, cannot hide it
-	u.Token = util.Hash(fmt.Sprintf("%s%s%s%d", u.Username, u.Password, u.Email, u.LoginNonce))
+	u.Token = util.Hash(fmt.Sprintf("%s%s%s%d", u.Phone, u.Password, u.Email, u.LoginNonce))
 
 	model.HideSensitiveUser(&u)
 
@@ -91,70 +100,23 @@ func login(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func syncHealth(w http.ResponseWriter, r *http.Request) {
+func Logout(w http.ResponseWriter, r *http.Request) {
+	// disable push notification
 
-	util.CheckBodyNil(w, r)
+	// disable login token
 
-	err, health := model.DecodeRequestIntoHealth(w, r)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	// test
-	log.Println(health)
 
-	isAuth := model.CheckAuth(health.Username, health.Token)
-	if isAuth == false {
-		http.Error(w, "Authentication fail.", 400)
-		return
-	}
-
-	health.MongoID = bson.NewObjectId()
-	err = health.Insert()
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-
-	model.HideSensitiveHealth(&health)
-
-	json.NewEncoder(w).Encode(&health)
 }
 
 
-func getLastHealth(w http.ResponseWriter, r *http.Request) {
+func ReportUser(w http.ResponseWriter, r *http.Request) {
+	// add a warning message into this user profile -> so that other users will see the reported messages
 
-	util.CheckBodyNil(w, r)
-
-	err, u := model.DecodeRequestIntoUser(w, r)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	// test
-	log.Println(u)
-
-	isAuth := model.CheckAuth(u.Username, u.Token)
-	if isAuth == false {
-		http.Error(w, "Authentication fail.", 400)
-		return
-	}
-
-	health := model.Health{}
-
-	err, h := health.QueryLastHealthByUser(u)
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
-	}
-	log.Println(u)
-	log.Println(h)
-
-	json.NewEncoder(w).Encode(&h)
 }
 
 
-func updateProfile(w http.ResponseWriter, r *http.Request) {
+
+func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	util.CheckBodyNil(w, r)
 
@@ -164,29 +126,58 @@ func updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isAuth := model.CheckAuth(rUser.Username, rUser.Token)
+	isAuth := model.CheckAuth(rUser.Email, rUser.Phone, rUser.Token)
 	if isAuth == false {
 		http.Error(w, "Authentication fail.", 400)
 		return
 	}
 
 	if len(rUser.MongoID) > 0 {
-		err = rUser.UpdateById()
-		log.Println("UpdateById")
-	} else {
-		err = rUser.UpdateByUsername()
-		log.Println("UpdateByUsername")
-	}
+		err = rUser.UpdateByMongoId(rUser)
 
-	if err != nil {
-		http.Error(w, err.Error(), 400)
-		return
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
 	}
 
 	model.HideSensitiveUser(&rUser)
 
 	json.NewEncoder(w).Encode(&rUser)
 }
+
+
+func LoadProfile(w http.ResponseWriter, r *http.Request) {
+
+	util.CheckBodyNil(w, r)
+
+	err, u := model.DecodeRequestIntoUser(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	isAuth := model.CheckAuth(u.Email, u.Phone, u.Token)
+	if isAuth == false {
+		http.Error(w, "Authentication fail.", 400)
+		return
+	}
+
+	var mongoId = ""
+
+	err, user := u.QueryByMongoID(mongoId)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	model.HideSensitiveUser(&user)
+
+	json.NewEncoder(w).Encode(&user)
+}
+
+
+
 
 
 func getAllBlogWithPaging(w http.ResponseWriter, r *http.Request) {

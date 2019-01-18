@@ -4,107 +4,61 @@ import (
 	"time"
 	"github.com/globalsign/mgo/bson"
 	"log"
-	"github.com/InclusION/static"
-	"github.com/InclusION/mdb"
 	"github.com/mitchellh/mapstructure"
+	"github.com/BTUS/mdb"
+	"github.com/BTUS/static"
 )
 
 type User struct {
 	MongoID bson.ObjectId `bson:"_id,omitempty"`
-	Username string
-	Password string
-	LoginNonce uint64
-
 	Email string
-	FirstName string
-	LastName string
-	Weight float32
-	Height float32
-	Class int
-
-	FatherName string
-	FatherPhone string
-
-	MotherName string
-	MotherPhone string
-
-	CoachName string
-	CoachPhone string
-
-	AdditionalInfo string
-	Timestamp time.Time
+	Phone string
+	Password string
+	DisplayName string
+	Avatar string
 
 	Token string
 	TokenExpiryTime time.Time
+	LoginNonce uint64
 
-	DeletedAt time.Time
+	IsVerify bool
 
-
-	// chat
-	//ClientId string
-
-	// fcm
+	// FCM
 	FcmToken string
 }
 
 
-func NewUser(username string) User {
-	u := User{Username: username}
-	return u
-}
-
-
-func (u *User) ToMap() map[string]string {
-	var uMap = make(map[string]string)
-	uMap["username"] = u.Username
-	uMap["password"] = u.Password
-	uMap["email"] = u.Email
-
-	return uMap
-}
-
-
-func (u *User) Insert() error {
-
-	u.Timestamp = time.Now().UTC()
+func (user *User) Insert(u User) error {
 	err := mdb.Insert(static.TBL_USERS, u)
 	if err  != nil {
 		return err
 	}
-
-	log.Println("Inserted")
 	return nil
 }
 
-func (u *User) QueryAll() []User {
+func (user *User) GetAll() []User {
 	results := mdb.QueryAll(static.TBL_USERS)
-
-	//log.Printf("Results %s", results)
-
 	var users []User
 
 	for _, u := range results {
-
 		var user User
 		err := mapstructure.Decode(u, &user)
 		if err  != nil {
 			log.Fatal(err)
 		}
-
 		users = append(users, user)
 	}
-
 	return users
 }
 
 
-func (u *User) QueryByUsernameAndPassword() (error, User) {
+func (user *User) QueryByEmailPassword(email string, pass string) (error, User) {
 
 	db := mdb.InitDB()
 	c := db.C(static.TBL_USERS)
 
 	var result User
-	err := c.Find(bson.M{"username": u.Username, "password": u.Password}).One(&result)
+	err := c.Find(bson.M{"email": email, "password": pass}).One(&result)
 	if err != nil {
 		log.Println(err)
 		return err, result
@@ -113,13 +67,30 @@ func (u *User) QueryByUsernameAndPassword() (error, User) {
 	return nil, result
 }
 
-func (u *User) QueryByUsername() (error, User) {
+
+func (user *User) QueryByPhonePassword(phone string, pass string) (error, User) {
 
 	db := mdb.InitDB()
 	c := db.C(static.TBL_USERS)
 
 	var result User
-	err := c.Find(bson.M{"username": u.Username}).One(&result)
+	err := c.Find(bson.M{"phone": phone, "password": pass}).One(&result)
+	if err != nil {
+		log.Println(err)
+		return err, result
+	}
+
+	return nil, result
+}
+
+
+func (user *User) QueryByEmail(email string) (error, User) {
+
+	db := mdb.InitDB()
+	c := db.C(static.TBL_USERS)
+
+	var result User
+	err := c.Find(bson.M{"email": email}).One(&result)
 	if err != nil {
 		return err, result
 	}
@@ -127,87 +98,63 @@ func (u *User) QueryByUsername() (error, User) {
 	return nil, result
 }
 
-func (u *User) UpdateById() error  {
+func (user *User) QueryByPhone(phone string) (error, User) {
 
-	u.Timestamp = time.Now().UTC()
+	db := mdb.InitDB()
+	c := db.C(static.TBL_USERS)
+
+	var result User
+	err := c.Find(bson.M{"phone": phone}).One(&result)
+	if err != nil {
+		return err, result
+	}
+
+	return nil, result
+}
+
+func (user *User) QueryByMongoID(mongoId string) (error, User) {
+
+	db := mdb.InitDB()
+	c := db.C(static.TBL_USERS)
+
+	var result User
+	err := c.Find(bson.M{"mongoid": mongoId}).One(&result)
+	if err != nil {
+		return err, result
+	}
+
+	return nil, result
+}
+
+
+func (user *User) UpdateByMongoId(u User) error  {
 
 	updateObject := bson.M{"$set":
 		bson.M{
-		"password" : u.Password, "email": u.Email, "firstname" : u.FirstName, "lastname" : u.LastName,
-		"weight" : u.Weight, "height" : u.Height, "class" : u.Class,
-		"fathername" : u.FatherName, "fatherphone" : u.FatherPhone ,
-		"mothername" : u.MotherName, "motherphone" : u.MotherPhone,
-		"coachname" : u.CoachName, "coachphone" : u.CoachPhone,
-		"additionalinfo" : u.AdditionalInfo,"timestamp": u.Timestamp,
+		"password" : u.Password,
+		"email": u.Email,
+		"displayname" : u.DisplayName,
+		"phone" : u.Phone,
 		"loginnonce": u.LoginNonce,
-		"token" : u.Token, "tokenexpirytime" : u.TokenExpiryTime,
+		"token" : u.Token,
+		"tokenexpirytime" : u.TokenExpiryTime,
 		"fcmtoken" : u.FcmToken }}
 
 	err := mdb.UpdateById(static.TBL_USERS, u.MongoID, updateObject)
 	if err != nil {
 		return err
 	}
-
-	log.Println("Updated")
 	return nil
 }
 
-func (u *User) UpdateByUsername() error  {
 
-	u.Timestamp = time.Now().UTC()
-
-	updateObject := bson.M{"$set":
-	bson.M{
-		"password" : u.Password, "email": u.Email, "firstname" : u.FirstName, "lastname" : u.LastName,
-		"weight" : u.Weight, "height" : u.Height, "class" : u.Class,
-		"fathername" : u.FatherName, "fatherphone" : u.FatherPhone ,
-		"mothername" : u.MotherName, "motherphone" : u.MotherPhone,
-		"coachname" : u.CoachName, "coachphone" : u.CoachPhone,
-		"additionalinfo" : u.AdditionalInfo,"timestamp": u.Timestamp,
-		"loginnonce": u.LoginNonce,
-		"token" : u.Token, "tokenexpirytime" : u.TokenExpiryTime,
-		"fcmtoken" : u.FcmToken }}
-
-
-	err := mdb.UpdateByKey(static.TBL_USERS,"username", u.Username, updateObject)
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-
-	log.Println("Updated")
-	return nil
-}
-
-func (u *User) HardDelete() error {
-
+func (user *User) HardDelete(u User) error {
 	err := mdb.Delete(static.TBL_USERS, u.MongoID)
 	if err != nil {
 		return err
 	}
-
 	log.Println("Hard Deleted")
 	return nil
 }
-
-func (u *User) SoftDelete() error {
-
-	u.DeletedAt = time.Now().UTC()
-	updateObject := bson.M{"$set": bson.M{"deletedat" : u.DeletedAt}}
-
-	err := mdb.UpdateByKey(static.TBL_USERS,"username", u.Username, updateObject)
-	if err != nil {
-		return err
-	}
-
-	log.Println("Soft Deleted")
-	return nil
-}
-
-
-//func (u *User) GetAllDevices() error {
-//	p := Phone{}
-//	p.QueryPhonesByUsername(u.Username)
-//}
 
 

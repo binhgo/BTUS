@@ -88,23 +88,44 @@ func DecodeRequestIntoCommand(cmd string) (error, Command) {
 	return nil, c
 }
 
-func CheckAuth(username string, token string) bool {
+func CheckAuth(email string, phone string, token string) bool {
+
+
+	var checkType = ""
 
 	// query user information
-	u := NewUser(username)
-	err, user := u.QueryByUsername()
+	u := User{}
+
+	if len(email) > 0 {
+		checkType = "EMAIL"
+	}
+
+	if len(phone) > 0 {
+		checkType = "PHONE"
+
+	}
+
+	var err error
+	var user User
+
+	if checkType == "PHONE" {
+		err, user = u.QueryByPhone(phone)
+	} else {
+		err, user = u.QueryByEmail(email)
+	}
+
 	if err != nil {
 		return false
 	}
 
-	log.Println(user.Username)
+	log.Println(user.Phone)
 	log.Println(user.Password)
 	log.Println(user.Email)
 	log.Println(user.LoginNonce)
 
 
 	// hash then compare with current hash
-	t := util.Hash(fmt.Sprintf("%s%s%s%d", user.Username, user.Password, user.Email, user.LoginNonce))
+	t := util.Hash(fmt.Sprintf("%s%s%s%d", user.Phone, user.Password, user.Email, user.LoginNonce))
 	log.Printf("complied token: ", t)
 	log.Printf("client token: ", token)
 	isEqual := strings.Compare(t, token)
